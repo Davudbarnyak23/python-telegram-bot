@@ -9,12 +9,16 @@ bot = telebot.TeleBot(token)
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///example.sqlite'
-
+app.config['SECRET_KEY'] = 'sdhjp677'
 db = SQLAlchemy(app)
 
 class Base(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     text = db.Column(db.String(),nullable=False)
+
+with app.app_context():
+    db.create_all
+
 
 @app.route('/')
 def index():
@@ -58,4 +62,5 @@ def is_text(message):
 
 
 if __name__ == '__main__':
-    bot.infinity_polling()
+    #bot.infinity_polling()
+    app.run()
