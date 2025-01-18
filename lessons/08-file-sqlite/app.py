@@ -13,8 +13,8 @@ cur = con.cursor()
 #     );''')
 # con.commit()
 
- cur.execute("INSERT INTO user_all (name, year, title) VALUES ('non', 2000, 'tttt');")
- con.commit()
+cur.execute("INSERT INTO user_all (name, year, title) VALUES ('non', 2000, 'tttt');")
+con.commit()
 
 
 con.close()
