@@ -1,10 +1,11 @@
 import config as c
 from SQliteManager import SQLNote
 import telebot
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import time
 import threading
 import sqlite3
-
+import re
 bot = telebot.TeleBot(c.BOT_TOKEN)
 
 
@@ -21,9 +22,41 @@ def bot_stars(message):
         else:
             bot.send_message(message.chat.id, '++++')
 
-def bot_add_title(message):
-    pass
 
+def bot_add_note(message):
+    bot.send_message(message.chat.id, 'input note: ')
+    bot.register_next_step_handler(message, bot_add_title)
+
+
+def bot_add_title(message):
+    with get_bd_cursor() as cur:
+        cur.execute(f'SELECT id FROM users WHERE chat_id={int(message.chat.id)}')
+        row = cur.fetchone()
+
+        if row:
+            cur.execute('INSERT INTO notes (user_id, title) VALUES (?, ?)', (row[0], message.text))
+            bot.send_message(message.chat.id, 'note save')
+        else:
+            bot.send_message(message.chat.id, ':(')
+
+
+def all_notes(message):
+    with get_bd_cursor() as cur:
+        cur.execute(f'SELECT id FROM users WHERE chat_id={int(message.chat.id)}')
+        row = cur.fetchone()
+
+        if row:
+            cur.execute(f'SELECT id, title, notification FROM notes WHERE user_id={row[0]}')
+            rows = cur.fetchall()
+
+            notes = ''
+            for r in rows:
+                notes += f'/edit_{r[0]}: {r[1]}. [{r[2]}]\n'
+
+            if  notes:
+                bot.send_message(message.chat.id, notes)
+            else:
+                bot.send_message(message.chat.id, 'no :(')
 # === SQLITE =====
 # db = sqlite3.connect('notebook.db')
 # cur = db.cursor()
@@ -49,6 +82,19 @@ def bot_add_title(message):
 
 # === FUNCTIONS =====
 
+def edit_note(message, note_id:int = 0):
+
+    keyboard = InlineKeyboardMarkup()
+    b1 = InlineKeyboardButton('regit note', callback_data="title_")
+    b2 = InlineKeyboardButton('опис', callback_data="content_")
+    b3 = InlineKeyboardButton('regit', callback_data="notification_")
+    b4 = InlineKeyboardButton('delete', callback_data="delete_")
+    keyboard.add(b1, b2, b3)
+    keyboard.add(b4)
+
+    bot.send_message(message.chat.id, '?', reply_markup=keyboard)
+
+
 def get_bd_cursor():
     return SQLNote(c.DB_NAME)
 
@@ -56,6 +102,9 @@ def send_text_message():
      while True:
          bot.send_message(USER_ID, 'text')
          time.sleep(20)
+
+
+# =============================================================================================
 
 # start - new
 # add - add
@@ -65,26 +114,26 @@ def send_text_message():
 # help - help
 # end - all new
 
-@bot.message_handler(commands=['start', 'add', 'edit', 'delete', 'help', 'end'])# === MESSAGE-HANDLERS =====
+@bot.message_handler(commands=['start', 'add', 'edit', 'delete', 'help', 'end', 'all'])# === MESSAGE-HANDLERS =====
 def bot_commands(message):
     if '/start' == message.text:
-        bot_stars('ok')
+        bot_stars(message)
     elif '/add' == message.text:
-        bot.send_message(message.chat.id, 'note:')
-        bot.register_next_step_handler(message, bot_add_title)
+        bot_add_note(message)
+    elif '/edit' == message.text:
+        pass
+        # bot.send_message(message.chat.id, 'note:')
+        # bot.register_next_step_handler(message, bot_add_title)
+    elif '/all' == message.text:
+        all_notes(message)
 
-@bot.message_handler(commands=['start'])
-def bot_stars(message):
-    print(message)
-    with get_bd_cursor() as cur:
-        cur.execute("SELECT chat_id FROM users WHERE chat_id='%d'" % message.chat.id)
-        row = cur.fetchone()
+@bot.message_handler(regexp=r'^\/edit_\d+$')
+def handler_edit_id(message):
+    match = re.match(r'^\/edit_(\d+)$', message.text)
 
-        if not row:
-            cur.execute(f"INSERT INTO users (chat_id, name) VALUES ('{message.chat.id}', '{message.from_user.username}')")
-            bot.send_message(message.chat.id, f'користувач [{message.chat.id}] , save')
-        else:
-            bot.send_message(message.chat.id, '++++')
+    if match:
+        edit_note(message, int(match.group(1)))
+        #bot.send_message(message.chat.id, match.group(1))
 
 
 @bot.message_handler(content_types=['text'])
