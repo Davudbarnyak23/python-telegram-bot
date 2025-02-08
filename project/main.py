@@ -1,3 +1,5 @@
+from gc import callbacks
+
 import config as c
 from SQliteManager import SQLNote
 import telebot
@@ -6,6 +8,8 @@ import time
 import threading
 import sqlite3
 import re
+from datetime import datetime as dt
+
 bot = telebot.TeleBot(c.BOT_TOKEN)
 
 
@@ -46,7 +50,7 @@ def all_notes(message):
         row = cur.fetchone()
 
         if row:
-            cur.execute(f'SELECT id, title, notification FROM notes WHERE user_id={row[0]}')
+            cur.execute(f'SELECT id, title, notification FROM notes WHERE deleted=0 AND user_id={row[0]}')
             rows = cur.fetchall()
 
             notes = ''
@@ -54,7 +58,7 @@ def all_notes(message):
                 notes += f'/edit_{r[0]}: {r[1]}. [{r[2]}]\n'
 
             if  notes:
-                bot.send_message(message.chat.id, notes)
+                bot.send_message(message.chat.id, 'notes:\n' + notes)
             else:
                 bot.send_message(message.chat.id, 'no :(')
 # === SQLITE =====
@@ -82,18 +86,26 @@ def all_notes(message):
 
 # === FUNCTIONS =====
 
-def edit_note(message, note_id:int = 0):
+def edit_note(message, note_id):
 
     keyboard = InlineKeyboardMarkup()
-    b1 = InlineKeyboardButton('regit note', callback_data="title_")
-    b2 = InlineKeyboardButton('опис', callback_data="content_")
-    b3 = InlineKeyboardButton('regit', callback_data="notification_")
-    b4 = InlineKeyboardButton('delete', callback_data="delete_")
+    b1 = InlineKeyboardButton('regit note', callback_data="title_" + note_id)
+    b2 = InlineKeyboardButton('опис', callback_data="content_" + note_id)
+    b3 = InlineKeyboardButton('reg time', callback_data="notification_" + note_id)
+    b4 = InlineKeyboardButton('delete', callback_data="delete_" + note_id)
     keyboard.add(b1, b2, b3)
     keyboard.add(b4)
 
     bot.send_message(message.chat.id, '?', reply_markup=keyboard)
 
+def delete_note(call, note_id):
+    with get_bd_cursor() as cur:
+        cur.execute(f'UPDATE notes SET deleted=1 WHERE id={int(note_id)}')
+
+        if cur.rowcount > 0:
+            bot.send_message(call.message.chat.id, 'delete note')
+        else:
+            bot.send_message(call.message.chat.id, 'error')
 
 def get_bd_cursor():
     return SQLNote(c.DB_NAME)
@@ -114,25 +126,80 @@ def send_text_message():
 # help - help
 # end - all new
 
-@bot.message_handler(commands=['start', 'add', 'edit', 'delete', 'help', 'end', 'all'])# === MESSAGE-HANDLERS =====
+@bot.message_handler(commands=['start', 'add', 'help', 'end', 'all'])# === MESSAGE-HANDLERS =====
 def bot_commands(message):
     if '/start' == message.text:
         bot_stars(message)
     elif '/add' == message.text:
         bot_add_note(message)
-    elif '/edit' == message.text:
-        pass
-        # bot.send_message(message.chat.id, 'note:')
-        # bot.register_next_step_handler(message, bot_add_title)
     elif '/all' == message.text:
         all_notes(message)
+
+@bot.callback_query_handler(func=lambda call: True)
+def handler_note_acrion(call):
+    callback_data = call.data.split('_')
+    if 2 == len(callback_data):
+        if callback_data[0] == 'delete':
+            delete_note(call, callback_data[1])
+        elif callback_data[0] == 'title':
+            title_note(call, callback_data[1])
+        elif callback_data[0] == 'content':
+            content_note(call, callback_data[1])
+        elif callback_data[0] == 'notification':
+            notification_note(call, callback_data[1])
+
+def title_note(call, note_id):
+    if hasattr(call.message, 'message_id'):
+        bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)
+    bot.send_message(call.message.chat.id, 'r note')
+    bot.register_next_step_handler_by_chat_id(call.message.chat.id, save_title_note, note_id)
+
+def save_title_note(message, note_id):
+    with get_bd_cursor() as cur:
+        cur.execute(f'UPDATE notes SET title= ? WHERE id=?', (message.text, note_id))
+
+        if cur.rowcount > 0:
+            bot.send_message(message.chat.id, 'new note')
+        else:
+            bot.send_message(message.chat.id, 'error')
+
+def content_note(call, note_id):
+    pass
+
+
+def notification_note(call, note_id):
+    if hasattr(call.message, 'message_id'):
+        bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)
+    m = """new time:
+    *день.місяць.рік години.хвилини*
+    """
+    # bot.send_message(call.message.chat.id, m, parse_mode='Markdoun' )
+    bot.send_message(call.message.chat.id, m)
+    bot.register_next_step_handler_by_chat_id(call.message.chat.id, save_notification_note, note_id)
+
+def save_notification_note(message, note_id):
+
+    try:
+        original_date = dt.strptime(message.text, '%d.%m.%Y %H:%M')
+        notification = original_date.strftime("%Y-%m-%d %H:%M:00")
+
+        with get_bd_cursor() as cur:
+            cur.execute(f'UPDATE notes SET notification=? WHERE id=?', (notification, note_id))
+
+            if cur.rowcount > 0:
+                bot.send_message(message.chat.id, 'edit time note')
+            else:
+                bot.send_message(message.chat.id, 'error')
+
+    except Exception:
+        bot.send_message(message.chat.id, 'error :<')
 
 @bot.message_handler(regexp=r'^\/edit_\d+$')
 def handler_edit_id(message):
     match = re.match(r'^\/edit_(\d+)$', message.text)
 
     if match:
-        edit_note(message, int(match.group(1)))
+        edit_note(message,match.group(1))
         #bot.send_message(message.chat.id, match.group(1))
 
 
