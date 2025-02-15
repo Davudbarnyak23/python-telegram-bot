@@ -111,20 +111,32 @@ def get_bd_cursor():
     return SQLNote(c.DB_NAME)
 
 def send_text_message():
-     while True:
-         bot.send_message(USER_ID, 'text')
-         time.sleep(20)
+    while True:
+        notes_id_list = []
+        with get_bd_cursor() as cur:
+            cur.execute('''
+                SELECT users.chat_id, notes.title, notes.content, notes.notification, notes.id
+                FROM notes 
+                INNER JOIN users ON notes.user_id = users.id
+                WHERE notes.is_send = 0 AND notes.deleted = 0 AND notes.notification < datetime('now')
+            ''')
+            rows = cur.fetchall()
+            print(rows)
+
+            for r in rows:
+                notes_id_list.append(r[4])
+                message = 'нагадування!\n' + r[3] + '\n' + r[1] + '\n' + r[2]
+                bot.send_message(r[0], message)
+                time.sleep(1)
+
+            id_str = ', '.join(['?'] * len(notes_id_list))
+            cur.execute(f'UPDATE notes SET is_send = 1 WHERE id IN ({id_str})', notes_id_list)
+
+        time.sleep(60)
 
 
 # =============================================================================================
 
-# start - new
-# add - add
-# edit - refactor
-# delete - delete
-# all - notes
-# help - help
-# end - all new
 
 @bot.message_handler(commands=['start', 'add', 'help', 'end', 'all'])# === MESSAGE-HANDLERS =====
 def bot_commands(message):
@@ -171,7 +183,7 @@ def notification_note(call, note_id):
     if hasattr(call.message, 'message_id'):
         bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)
     m = """new time:
-    *день.місяць.рік години.хвилини*
+    *день.місяць.рік години:хвилини*
     """
     # bot.send_message(call.message.chat.id, m, parse_mode='Markdoun' )
     bot.send_message(call.message.chat.id, m)
@@ -184,13 +196,12 @@ def save_notification_note(message, note_id):
         notification = original_date.strftime("%Y-%m-%d %H:%M:00")
 
         with get_bd_cursor() as cur:
-            cur.execute(f'UPDATE notes SET notification=? WHERE id=?', (notification, note_id))
+            cur.execute(f'UPDATE notes SET is_send = 0, notification=? WHERE id=?', (notification, note_id))
 
             if cur.rowcount > 0:
                 bot.send_message(message.chat.id, 'edit time note')
             else:
                 bot.send_message(message.chat.id, 'error')
-
     except Exception:
         bot.send_message(message.chat.id, 'error :<')
 
@@ -209,7 +220,7 @@ def text_message(message):
 
 #
 if __name__ == '__main__':
-    # thread = threading.Thread(target=send_text_message)
-    # thread.start()
+    thread = threading.Thread(target=send_text_message)
+    thread.start()
     bot.infinity_polling()
 
